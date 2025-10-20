@@ -6,11 +6,11 @@ app = FastAPI(title="FinCore App Service", version="0.1.0")
 
 @app.get("/healthz", response_class=PlainTextResponse)
 def healthz():
-    return "ok"
+    return "ok - this seems working"
 
 @app.get("/", response_class=PlainTextResponse)
 def root():
-    return "Hello from FinCore"
+    return "Hello from FinCore - working"
 
 @app.get("/config", response_class=PlainTextResponse)
 def config():
