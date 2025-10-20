@@ -56,18 +56,11 @@ jobs:
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v4
+        with:
+          version: latest
 
       - name: Install Helm
         uses: azure/setup-helm@v4
-
-      # (Optional one-time) Inspect OIDC token to align IAM trust policy
-      # - name: Inspect OIDC token (debug)
-      #   run: |
-      #     TOKEN_JSON=$(curl -sH "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-      #       "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com")
-      #     TOKEN=$(echo "$TOKEN_JSON" | jq -r .value)
-      #     PAYLOAD=$(echo "$TOKEN" | awk -F. '{print $2}' | base64 -d 2>/dev/null)
-      #     echo "OIDC sub: " $(echo "$PAYLOAD" | jq -r .sub)
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -76,12 +69,34 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
           role-skip-session-tagging: true
 
+      # Quick sanity: can we see the cluster and its endpoint?
+      - name: Describe cluster
+        run: |
+          aws sts get-caller-identity
+          aws eks describe-cluster --name "${{ secrets.EKS_CLUSTER }}" --region "${{ secrets.AWS_REGION }}" --query "cluster.{name:name,endpoint:endpoint,publicAccess:resourcesVpcConfig.endpointPublicAccess}" --output table
+
+      # Force-generate kubeconfig with exec auth
       - name: Update kubeconfig
-        run: aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER }}" --region "${{ secrets.AWS_REGION }}"
+        run: |
+          aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER }}" --region "${{ secrets.AWS_REGION }}" --alias fincore
+          echo "==== kubeconfig contexts ===="
+          kubectl config get-contexts
+          kubectl config use-context fincore
+          echo "==== try listing namespaces ===="
+          kubectl get ns
+
+      # If API server requires private access, bail out early with a clear message
+      - name: Check API reachability
+        run: |
+          if ! kubectl version --short; then
+            echo "::error::Unable to reach EKS API server from GitHub runner.
+            If your EKS endpoint is PRIVATE, use a self-hosted runner in the VPC,
+            temporarily enable public endpoint, or tunnel via a jump host." && exit 1
+          fi
 
       - name: Helm upgrade
         run: |
           helm upgrade --install "${{ env.APP_NAME }}" ./helm \
             --namespace "${{ env.NAMESPACE }}" --create-namespace \
-            --set image.repository="ghcr.io/${{ github.repository }}/${{ env.APP_NAME }}" \
+            --set image.repository="ghcr.io/${{ github.repository }}" \
             --set image.tag="${{ needs.build.outputs.image_tag }}"
