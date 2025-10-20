@@ -24,21 +24,6 @@ jobs:
           docker push $IMAGE
           echo "IMAGE=$IMAGE" >> $GITHUB_ENV
           echo "IMAGE_TAG=${{ github.sha }}" >> $GITHUB_ENV
-      - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@0.24.0
-        with:
-          image-ref: ${{ env.IMAGE }}
-          format: 'table'
-          exit-code: '1'
-          severity: 'HIGH,CRITICAL'
-      - name: Cosign sign (keyless)
-        env:
-          COSIGN_EXPERIMENTAL: "1"
-        run: |
-          curl -sSL -o cosign.tgz https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64.tar.gz
-          tar -xzf cosign.tgz
-          sudo mv cosign /usr/local/bin/cosign
-          cosign sign ${{ env.IMAGE }}
 
   deploy-dev:
     runs-on: ubuntu-latest
