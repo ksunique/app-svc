@@ -64,6 +64,20 @@ jobs:
       #       "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
       #     echo "SUB:" $(echo "$TOKEN" | awk -F. '{print $2}' | base64 -d 2>/dev/null | jq -r .sub)
 
+      - name: Inspect OIDC token (debug)
+        permissions:
+          id-token: write
+          contents: read
+        run: |
+          set -e
+          TOKEN_JSON=$(curl -sH "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com")
+          TOKEN=$(echo "$TOKEN_JSON" | jq -r .value)
+          PAYLOAD=$(echo "$TOKEN" | awk -F. '{print $2}' | base64 -d 2>/dev/null)
+          echo "OIDC sub:  " $(echo "$PAYLOAD" | jq -r .sub)
+          echo "repo:      " $(echo "$PAYLOAD" | jq -r .repository)
+          echo "ref:       " $(echo "$PAYLOAD" | jq -r .ref)
+          
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
