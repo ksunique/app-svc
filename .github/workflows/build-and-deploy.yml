@@ -57,7 +57,8 @@ jobs:
       - name: Install kubectl
         uses: azure/setup-kubectl@v4
         with:
-          version: latest
+          # Pin to a recent version; adjust to your cluster minor if you prefer
+          version: 'v1.29.0'
 
       - name: Install Helm
         uses: azure/setup-helm@v4
@@ -69,30 +70,32 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
           role-skip-session-tagging: true
 
-      # Quick sanity: can we see the cluster and its endpoint?
       - name: Describe cluster
         run: |
           aws sts get-caller-identity
-          aws eks describe-cluster --name "${{ secrets.EKS_CLUSTER }}" --region "${{ secrets.AWS_REGION }}" --query "cluster.{name:name,endpoint:endpoint,publicAccess:resourcesVpcConfig.endpointPublicAccess}" --output table
+          aws eks describe-cluster --name "${{ secrets.EKS_CLUSTER }}" --region "${{ secrets.AWS_REGION }}" \
+            --query "cluster.{name:name,endpoint:endpoint,publicAccess:resourcesVpcConfig.endpointPublicAccess}" --output table
 
-      # Force-generate kubeconfig with exec auth
       - name: Update kubeconfig
         run: |
           aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER }}" --region "${{ secrets.AWS_REGION }}" --alias fincore
-          echo "==== kubeconfig contexts ===="
-          kubectl config get-contexts
           kubectl config use-context fincore
-          echo "==== try listing namespaces ===="
-          kubectl get ns
+          kubectl config get-contexts
 
-      # If API server requires private access, bail out early with a clear message
+      # ✅ Cross-version API reachability check (no --short)
       - name: Check API reachability
         run: |
-          if ! kubectl version --short; then
+          set -e
+          # Try unauthenticated-ish endpoints first; fall back to a cheap auth call
+          if ! kubectl get --raw='/version' >/dev/null 2>&1 && \
+             ! kubectl get --raw='/healthz'  >/dev/null 2>&1 && \
+             ! kubectl get ns --request-timeout=5s >/dev/null 2>&1 ; then
             echo "::error::Unable to reach EKS API server from GitHub runner.
             If your EKS endpoint is PRIVATE, use a self-hosted runner in the VPC,
-            temporarily enable public endpoint, or tunnel via a jump host." && exit 1
+            temporarily enable public endpoint, or tunnel via a jump host."
+            exit 1
           fi
+          echo "EKS API reachable."
 
       - name: Helm upgrade
         run: |
