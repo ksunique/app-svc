@@ -32,7 +32,8 @@ jobs:
 
       - name: Build & push image
         run: |
-          IMAGE="ghcr.io/${{ github.repository }}/${{ env.APP_NAME }}:${{ github.sha }}"
+          IMAGE="ghcr.io/${{ github.repository }}:${{ github.sha }}"  # -> ghcr.io/ksunique/app-svc:<sha>
+          # IMAGE="ghcr.io/${{ github.repository }}/${{ env.APP_NAME }}:${{ github.sha }}"
           docker build -t "$IMAGE" .
           docker push "$IMAGE"
           echo "IMAGE=$IMAGE" >> $GITHUB_ENV
@@ -102,4 +103,4 @@ jobs:
           helm upgrade --install "${{ env.APP_NAME }}" ./helm \
             --namespace "${{ env.NAMESPACE }}" --create-namespace \
             --set image.repository="ghcr.io/${{ github.repository }}" \
-            --set image.tag="${{ needs.build.outputs.image_tag }}"
+            --set image.tag="${{ needs.build.outputs.image_tag }}"      
