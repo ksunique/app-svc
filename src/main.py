@@ -10,7 +10,7 @@ def healthz():
 
 @app.get("/", response_class=PlainTextResponse)
 def root():
-    return "Hello from FinCore."
+    return "Hello from FinCore Team."
 
 @app.get("/config", response_class=PlainTextResponse)
 def config():
