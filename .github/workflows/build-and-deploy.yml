@@ -3,6 +3,17 @@ name: build-and-deploy
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        type: choice
+        required: true
+        options: [dev]
+        default: dev
+      imageTag:
+        description: "Override image tag (optional)"
+        required: false
 
 permissions:
   contents: read
@@ -11,6 +22,7 @@ permissions:
 
 env:
   APP_NAME: app-svc
+  # Default namespace; can be overridden by workflow_dispatch input
   NAMESPACE: dev
 
 jobs:
@@ -33,7 +45,6 @@ jobs:
       - name: Build & push image
         run: |
           IMAGE="ghcr.io/${{ github.repository }}:${{ github.sha }}"  # -> ghcr.io/ksunique/app-svc:<sha>
-          # IMAGE="ghcr.io/${{ github.repository }}/${{ env.APP_NAME }}:${{ github.sha }}"
           docker build -t "$IMAGE" .
           docker push "$IMAGE"
           echo "IMAGE=$IMAGE" >> $GITHUB_ENV
@@ -52,13 +63,16 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    env:
+      # Allow overriding via workflow_dispatch inputs
+      EFFECTIVE_NAMESPACE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.NAMESPACE }}
+      EFFECTIVE_IMAGE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.imageTag || needs.build.outputs.image_tag }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v4
         with:
-          # Pin to a recent version; adjust to your cluster minor if you prefer
           version: 'v1.29.0'
 
       - name: Install Helm
@@ -83,11 +97,9 @@ jobs:
           kubectl config use-context fincore
           kubectl config get-contexts
 
-      # ✅ Cross-version API reachability check (no --short)
       - name: Check API reachability
         run: |
           set -e
-          # Try unauthenticated-ish endpoints first; fall back to a cheap auth call
           if ! kubectl get --raw='/version' >/dev/null 2>&1 && \
              ! kubectl get --raw='/healthz'  >/dev/null 2>&1 && \
              ! kubectl get ns --request-timeout=5s >/dev/null 2>&1 ; then
@@ -101,6 +113,6 @@ jobs:
       - name: Helm upgrade
         run: |
           helm upgrade --install "${{ env.APP_NAME }}" ./helm \
-            --namespace "${{ env.NAMESPACE }}" --create-namespace \
+            --namespace "${{ env.EFFECTIVE_NAMESPACE }}" --create-namespace \
             --set image.repository="ghcr.io/${{ github.repository }}" \
-            --set image.tag="${{ needs.build.outputs.image_tag }}"      
+            --set image.tag="${{ env.EFFECTIVE_IMAGE_TAG }}"
