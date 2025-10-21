@@ -1,0 +1,62 @@
+name: Create New GitHub Repository
+
+on:
+  workflow_dispatch:
+    inputs:
+      port_payload:
+        description: "Port's payload, including details for who triggered the action and general context (blueprint, run id, etc...)"
+        required: true
+
+jobs:
+  create-repo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Parse Port Payload
+        id: parse-payload
+        run: |
+          echo "REPO_NAME=$(echo ${{ github.event.inputs.port_payload }} | jq -r '.payload.properties.name')" >> $GITHUB_OUTPUT
+          echo "REPO_DESC=$(echo ${{ github.event.inputs.port_payload }} | jq -r '.payload.properties.description')" >> $GITHUB_OUTPUT
+          echo "RUN_ID=$(echo ${{ github.event.inputs.port_payload }} | jq -r '.context.runId')" >> $GITHUB_OUTPUT
+
+      - name: Create Repository
+        uses: f1lander/create-repository-action@v1  # From GitHub Marketplace
+        with:
+          name: ${{ steps.parse-payload.outputs.REPO_NAME }}
+          org: ksunique  # Replace if not an org; omit for user repos
+          description: ${{ steps.parse-payload.outputs.REPO_DESC }}
+          private: false  # Or true; make this an input if needed
+          access-token: ${{ secrets.ORG_TOKEN }}
+
+      - name: Inform Port of Success
+        if: success()
+        run: |
+          curl -X POST "https://api.getport.io/v1/actions/runs/${{ steps.parse-payload.outputs.RUN_ID }}/logs" \
+            -H "Authorization: Bearer ${{ secrets.PORT_CLIENT_ID }}:${{ secrets.PORT_CLIENT_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{"message": "Repository created successfully! URL: https://github.com/ksunique/${{ steps.parse-payload.outputs.REPO_NAME }}"}'
+
+      - name: Create Port Entity (Optional - for Repository Blueprint)
+        if: success()
+        run: |
+          curl -X POST "https://api.getport.io/v1/blueprints/repository/entities" \
+            -H "Authorization: Bearer ${{ secrets.PORT_CLIENT_ID }}:${{ secrets.PORT_CLIENT_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+                  "identifier": "${{ steps.parse-payload.outputs.REPO_NAME }}",
+                  "title": "${{ steps.parse-payload.outputs.REPO_NAME }}",
+                  "properties": {
+                    "description": "${{ steps.parse-payload.outputs.REPO_DESC }}",
+                    "url": "https://github.com/ksunique/${{ steps.parse-payload.outputs.REPO_NAME }}"
+                  }
+                }'
+
+      - name: Handle Failure
+        if: failure()
+        run: |
+          curl -X POST "https://api.getport.io/v1/actions/runs/${{ steps.parse-payload.outputs.RUN_ID }}/status" \
+            -H "Authorization: Bearer ${{ secrets.PORT_CLIENT_ID }}:${{ secrets.PORT_CLIENT_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{"status": "FAILURE"}'
